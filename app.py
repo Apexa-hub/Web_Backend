@@ -185,14 +185,20 @@ def forgot_password():
         return jsonify({'Status': 'Success', 'Message': 'Email sent'})
     except Exception as e:
         return jsonify({'Error': f'Error sending email: {str(e)}'})
-
-@app.route('/resetpassword/<token>', methods=['POST'])
-def reset_password(token):
+    
+@app.route('/resetpassword', methods=['POST'])
+@jwt_required(locations=["headers"])  
+def reset_password():
     data = request.json
-    password = data['password']
+    password = data.get('password')
+
+    if not password:
+        return jsonify({'Error': 'Password is required'}), 400
+
     try:
-        email = get_jwt_identity()
+        email = get_jwt_identity()  
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
         conn = db_connection()
         cursor = conn.cursor()
         sql = "UPDATE users SET password = %s WHERE email = %s"
@@ -200,10 +206,14 @@ def reset_password(token):
         conn.commit()
         cursor.close()
         conn.close()
+
         log_activity(email, 'Password reset')
+
         return jsonify({'Status': 'Success', 'Message': 'Password updated successfully'})
+
     except Exception as e:
-        return jsonify({'Error': f'Invalid or expired token: {str(e)}'})
+        return jsonify({'Error': f'Invalid or expired token: {str(e)}'}), 400
+
 
 @app.route('/upload', methods=['POST'])
 @jwt_required()
@@ -232,16 +242,16 @@ def get_user_images():
     conn.close()
     return jsonify(data)
 
-@app.route('/api/images', methods=['GET'])
-def get_images():
-    conn = db_connection()
-    cursor = conn.cursor(dictionary=True)
-    sql = "SELECT * FROM images LIMIT 3"
-    cursor.execute(sql)
-    images = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return jsonify(images)
+# @app.route('/api/images', methods=['GET'])
+# def get_images():
+#     conn = db_connection()
+#     cursor = conn.cursor(dictionary=True)
+#     sql = "SELECT * FROM images LIMIT 3"
+#     cursor.execute(sql)
+#     images = cursor.fetchall()
+#     cursor.close()
+#     conn.close()
+#     return jsonify(images)
 
 
 def fix_base64_padding(base64_string):
@@ -256,6 +266,7 @@ def fix_base64_padding(base64_string):
 @jwt_required()  
 def upload_input_image():
     data = request.json.get("imageData")
+    inputImage = request.json.get("inputImage")
     email = get_jwt_identity()
 
 
@@ -266,34 +277,55 @@ def upload_input_image():
         data = fix_base64_padding(data)
         image_data = base64.b64decode(data)
         image = Image.open(BytesIO(image_data))
+
+        input_image_data = base64.b64decode(inputImage)
+        input_image = Image.open(BytesIO(input_image_data))
         
         if not os.path.exists(app.config["UPLOAD_FOLDER"]):
             os.makedirs(app.config["UPLOAD_FOLDER"])
         
-        filename = "upload_image.png"  
-        image_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        image.save(image_path)
+        masked_image_path = os.path.join(app.config["UPLOAD_FOLDER"], "masked_image.png")
+        input_image_path = os.path.join(app.config["UPLOAD_FOLDER"], "input_image.png")
+
+        image.save(masked_image_path)
+        input_image.save(input_image_path)
 
 
-        shape_generated_image_path = shape_generator(image_path)
+        # shape_generated_image_path = shape_generator(masked_image_path)
+        shape_generated_image_path, error_msg = shape_generator(masked_image_path)
+
+        if error_msg:
+            return jsonify({"error": error_msg}), 400
         generated_room_split_image_path = generate_room_split_image()
 
 
-        generated_image = cv2.imread(generated_room_split_image_path)
-        _, encoded_output = cv2.imencode('.png', generated_image)
-        generated_image_blob = encoded_output.tobytes()
+        input_image = cv2.imread(input_image_path)
+        _, input_image_encoded_output = cv2.imencode('.png', input_image)
+        input_image_blob = input_image_encoded_output.tobytes()
+        
+        masked_image = cv2.imread(masked_image_path)
+        _, masked_encoded_output = cv2.imencode('.png', masked_image)
+        masked_image_blob = masked_encoded_output.tobytes()
+
+        shape_generated_image = cv2.imread(shape_generated_image_path)
+        _, shape_generated_encoded_output = cv2.imencode('.png', shape_generated_image)
+        shape_generated_image_blob = shape_generated_encoded_output.tobytes()
+
+        room_split_generated_image = cv2.imread(generated_room_split_image_path)
+        _, room_split_encoded_output = cv2.imencode('.png', room_split_generated_image)
+        room_split_generated_image_blob = room_split_encoded_output.tobytes()
 
         conn = db_connection()
         cursor = conn.cursor(dictionary=True)
-        insert_query = "INSERT INTO user_input_image (email, image) VALUES (%s, %s)"
-        cursor.execute(insert_query, (email, generated_image_blob))
+        insert_query = "INSERT INTO user_input_image (email,input_image, masked_img,2d_room_split_img,shape_generated_img) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(insert_query, (email, input_image_blob, masked_image_blob,room_split_generated_image_blob,shape_generated_image_blob))
         conn.commit()
         cursor.close()
         conn.close()
 
         return jsonify({
                     "Status": "Image uploaded successfully",
-                    "uploadedImageUrl": f"/{image_path}",
+                    "uploadedImageUrl": f"/{masked_image_path}",
                     "generated_path": f"/{generated_room_split_image_path}",
                     "generateImagePath": shape_generated_image_path
                 }), 200
@@ -302,6 +334,30 @@ def upload_input_image():
         return jsonify({"error": str(e)}), 500
     
 
+@app.route("/get-room-split-images", methods=["GET"])
+@jwt_required()
+def get_room_split_images():
+    try:
+        conn = db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute("SELECT id, email, 2d_room_split_img FROM user_input_image WHERE id = (SELECT MAX(id) FROM user_input_image)")
+        images = cursor.fetchall()
+
+        image_list = []
+        for image in images:
+            base64_image = base64.b64encode(image['2d_room_split_img']).decode("utf-8")
+            image_list.append({
+                "id": image['id'],
+                "email": image['email'],
+                "image_data": base64_image
+            })
+
+        return jsonify({"status": "success", "images": image_list}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Error fetching images: {str(e)}"}), 500
+    
 @app.route("/get-all-images", methods=["GET"])
 @jwt_required()
 def get_all_user_input_images():
@@ -309,16 +365,23 @@ def get_all_user_input_images():
         conn = db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        cursor.execute("SELECT id, email, image FROM user_input_image")
+        cursor.execute("SELECT id, email,input_image, masked_img, 2d_room_split_img, shape_generated_img,timestamp FROM user_input_image")
         images = cursor.fetchall()
 
         image_list = []
         for image in images:
-            base64_image = base64.b64encode(image['image']).decode("utf-8")
+            input_image = base64.b64encode(image['input_image']).decode("utf-8")
+            masked_image = base64.b64encode(image['masked_img']).decode("utf-8")
+            room_split_image = base64.b64encode(image['2d_room_split_img']).decode("utf-8")
+            shape_generated_image = base64.b64encode(image['shape_generated_img']).decode("utf-8")
             image_list.append({
                 "id": image['id'],
                 "email": image['email'],
-                "image_data": base64_image
+                "input_image": input_image,
+                "masked_image": masked_image,
+                "room_split_image": room_split_image,
+                "shape_generated_image": shape_generated_image,
+                "timestamp": image['timestamp'],
             })
 
         return jsonify({"status": "success", "images": image_list}), 200

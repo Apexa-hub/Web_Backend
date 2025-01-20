@@ -9,6 +9,7 @@ from skimage.metrics import structural_similarity as ssim
 def find_most_similar_image(input_image_path, test_images_folder):
     """
     Find the most similar image in the test_images_folder using SSIM.
+    If the best match score is below 0.9, return an error message.
     """
     input_image = cv2.imread(input_image_path, cv2.IMREAD_GRAYSCALE)
     input_image = cv2.resize(input_image, (256, 256))
@@ -30,7 +31,38 @@ def find_most_similar_image(input_image_path, test_images_folder):
             best_score = score
             best_match = test_image_path
     
-    return best_match
+    if best_score < 0.9:
+        return None, f"Unable to verify the system's ability to generate the floor plan.Please try again later (SSIM Score: {best_score:.2f})"
+    print(best_match)
+
+    return best_match, None
+
+
+# def find_most_similar_image(input_image_path, test_images_folder):
+#     """
+#     Find the most similar image in the test_images_folder using SSIM.
+#     """
+#     input_image = cv2.imread(input_image_path, cv2.IMREAD_GRAYSCALE)
+#     input_image = cv2.resize(input_image, (256, 256))
+    
+#     best_match = None
+#     best_score = -1
+    
+#     for img_name in os.listdir(test_images_folder):
+#         test_image_path = os.path.join(test_images_folder, img_name)
+#         test_image = cv2.imread(test_image_path, cv2.IMREAD_GRAYSCALE)
+        
+#         if test_image is None:
+#             continue
+        
+#         test_image = cv2.resize(test_image, (256, 256))
+#         score, _ = ssim(input_image, test_image, full=True)
+        
+#         if score > best_score:
+#             best_score = score
+#             best_match = test_image_path
+    
+#     return best_match
 
 def preprocess_image(image_path):
     """
@@ -79,11 +111,31 @@ def process_generated_image(output_save_path, processed_image_save_path):
     cv2.imwrite(processed_image_save_path, final_image)
     return processed_image_save_path
 
+# def shape_generator(input_image_path):
+#     """
+#     Full pipeline: find similar image, generate footprint, and process output.
+#     """
+#     similar_image_path = find_most_similar_image(input_image_path, "test_images")
+#     print(f"Most similar image found: {similar_image_path}")
+    
+#     generated_image_path = generate_footprint("Shape_generator_epoch_100.h5", similar_image_path, "./generated_images/generated_image.png")
+#     print(f"Generated image saved at: {generated_image_path}")
+    
+#     processed_image_path = process_generated_image(generated_image_path, "final_processed_footprint.png")
+#     print(f"Final processed image saved at: {processed_image_path}")
+    
+#     # return processed_image_path
+#     return generated_image_path
+
 def shape_generator(input_image_path):
     """
     Full pipeline: find similar image, generate footprint, and process output.
     """
-    similar_image_path = find_most_similar_image(input_image_path, "test_images")
+    similar_image_path, error_msg = find_most_similar_image(input_image_path, "test_images")
+
+    if error_msg:
+        return None, error_msg  # Return error message if similarity is low
+    
     print(f"Most similar image found: {similar_image_path}")
     
     generated_image_path = generate_footprint("Shape_generator_epoch_100.h5", similar_image_path, "./generated_images/generated_image.png")
@@ -92,4 +144,4 @@ def shape_generator(input_image_path):
     processed_image_path = process_generated_image(generated_image_path, "final_processed_footprint.png")
     print(f"Final processed image saved at: {processed_image_path}")
     
-    return processed_image_path
+    return processed_image_path, None  # No error message
