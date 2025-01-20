@@ -296,8 +296,8 @@ def upload_input_image():
 
         if error_msg:
             return jsonify({"error": error_msg}), 400
+        
         generated_room_split_image_path = generate_room_split_image()
-
 
         input_image = cv2.imread(input_image_path)
         _, input_image_encoded_output = cv2.imencode('.png', input_image)

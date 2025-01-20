@@ -37,7 +37,6 @@ def find_most_similar_image(input_image_path, test_images_folder):
 
     return best_match, None
 
-
 # def find_most_similar_image(input_image_path, test_images_folder):
 #     """
 #     Find the most similar image in the test_images_folder using SSIM.
@@ -134,14 +133,14 @@ def shape_generator(input_image_path):
     similar_image_path, error_msg = find_most_similar_image(input_image_path, "test_images")
 
     if error_msg:
-        return None, error_msg  # Return error message if similarity is low
+        return None, error_msg
     
     print(f"Most similar image found: {similar_image_path}")
     
     generated_image_path = generate_footprint("Shape_generator_epoch_100.h5", similar_image_path, "./generated_images/generated_image.png")
     print(f"Generated image saved at: {generated_image_path}")
     
-    processed_image_path = process_generated_image(generated_image_path, "final_processed_footprint.png")
-    print(f"Final processed image saved at: {processed_image_path}")
+    # processed_image_path = process_generated_image(generated_image_path, "final_processed_footprint.png")
+    # print(f"Final processed image saved at: {processed_image_path}")
     
-    return processed_image_path, None  # No error message
+    return generated_image_path, None  

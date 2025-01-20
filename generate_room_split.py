@@ -44,9 +44,7 @@ def generate_room_split_image():
     """
     Main function to generate and return the room split image path.
     """
-    processed_image = "final_processed_footprint.png"
-    output_save_path = "./generated_images/generated_room_split.png"  
-    generated_image_path = generate_room_split(processed_image, output_save_path)
+    generated_image_path = generate_room_split("generated_image.png", "./generated_images/generated_room_split.png")
     
     return generated_image_path
 
